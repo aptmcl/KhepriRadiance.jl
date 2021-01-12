@@ -1,0 +1,13 @@
+name = "KhepriRadiance"
+uuid = "d07aae03-db2d-4f5e-81a9-3670c2d28388"
+authors = ["António Menezes Leitão <antonio.menezes.leitao@gmail.com>"]
+version = "0.1.0"
+
+[compat]
+julia = "1.5"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
