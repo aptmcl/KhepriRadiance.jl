@@ -1077,7 +1077,7 @@ export_sky(b::RAD, path::AbstractString) =
 
 radiance_sensors = Parameter(Loc[])
 
-export_sensors(path::Path, sensors=radiance_sensors()) =
+export_sensors(b::RAD, path::Path, sensors=radiance_sensors()) =
   let ptspath = path_replace_suffix(path, ".pts")
     open(ptspath, "w") do out
       with(current_layer, sensor_layer()) do
