@@ -1,0 +1,28 @@
+# integrating sphere measurements
+##### HEADER #####
+# one-dimensional data array
+1 
+# irregularly spaced axis: 
+# two zeros – number of divisions – division values
+0 0 17	
+0 5 10 15 20 25 30 35 40 45 50 55 60 65 70 75 90 
+##### Body #####
+# Data values: 
+0.465252358
+0.461375255
+0.455559601
+0.443928292
+0.430358431
+0.412911468
+0.393525953
+0.372201887
+0.348939269
+0.323738099
+0.29853693
+0.271397209
+0.24619604
+0.22099487
+0.195793701
+0.164776877
+0
+

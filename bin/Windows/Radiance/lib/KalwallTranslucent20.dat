@@ -1,0 +1,32 @@
+# Kalwall_20: data for Radiance transdata model Kawall_20.rad
+# the direct hemispherical transmittance data is based on  
+# integrating sphere measurements carried out at the Fraunhofer 
+# Institue for Solar Energy Systems, Germany (June 2005)
+# author: Christoph Reinhart
+# 
+##### HEADER #####
+# one-dimensional data array
+1 
+# irregularly spaced axis: 
+# two zeros – number of divisions – division values
+0 0 17	
+0 5 10 15 20 25 30 35 40 45 50 55 60 65 70 75 90 
+##### Body #####
+# Data values: 
+0.471279687
+0.467352356
+0.46146136
+0.449679368
+0.43593371
+0.418260722
+0.398624068
+0.377023749
+0.353459765
+0.327931838
+0.302404466
+0.274913151
+0.249385501
+0.223857851
+0.198330201
+0.166911556
+0

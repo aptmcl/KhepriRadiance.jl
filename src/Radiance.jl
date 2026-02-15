@@ -176,6 +176,8 @@ radiance_string(m::RadianceMaterial) =
 write_rad_material(io::IO, material::RadianceMaterial) =
   write(io, radiance_string(material))
 
+material_id(m::RadianceMaterial) = m.name
+
 #show(io::IO, mat::RadianceMaterial) =
 #  write_rad_material(io, mat)
 
@@ -225,8 +227,6 @@ radiance_generic_glass_80 = radiance_glass_material("Glass_80", gray=0.8)
 radiance_generic_metal = radiance_metal_material("SheetMetal_80", gray=0.8)
 radiance_light_wood = radiance_plastic_material("LightWood", red=0.5, green=0.3, blue=0.2)
 
-default_radiance_material = Parameter(radiance_material_neutral)
-
 export radiance_material_neutral,
        radiance_material_white,
        radiance_generic_ceiling_70,
@@ -240,8 +240,7 @@ export radiance_material_neutral,
        radiance_outside_facade_35,
        radiance_generic_glass_80,
        radiance_generic_metal,
-       radiance_light_wood,
-       default_radiance_material
+       radiance_light_wood
 
 ####################################################
 # Sky models
@@ -300,14 +299,32 @@ radiance_simulation_path() =
  end
 
 export radiance_folder
-const radiance_folder = Parameter("C:/Program Files/Radiance/bin/")
+const radiance_folder = Parameter(joinpath(@__DIR__, "../bin/Windows/Radiance/"))
 
-radiance_folder("C:/DIVA/Radiance/bin_64/")
+#radiance_folder("C:/DIVA/Radiance/bin_64/")
+#radiance_folder("C:/Program Files/Radiance/bin/")
 
-radiance_cmd(cmd::AbstractString) = radiance_folder() * cmd
+path_separator() = Sys.iswindows() ? ";" : ":"
 
-const accelerad_folder = Parameter("C:/Program Files/Accelerad/bin/")
-accelerad_cmd(cmd::AbstractString) = accelerad_folder() * "accelerad_" * cmd
+add_to_path(path, base) =
+  realpath(path)*path_separator()*base
+
+# According to the documentation, radiance needs . in the path. That is dangerous! We will place it at the end.
+radiance_cmd(cmd) =
+  addenv(cmd,
+    "PATH"=>add_to_path(joinpath(radiance_folder(), "bin_64"), ENV["PATH"]*path_separator()*"."),
+    "RAYPATH"=>add_to_path(joinpath(radiance_folder(), "lib"), ENV["RAYPATH"]*path_separator()*"."))
+
+export accelerad_folder
+const accelerad_folder = Parameter("C:/Program Files/Accelerad/")
+accelerad_cmd(cmd) =
+  addenv(cmd,
+    "PATH"=>add_to_path(
+              joinpath(accelerad_folder(), "bin"),
+              add_to_path(joinpath(radiance_folder(), "bin_64"), ENV["PATH"]*path_separator()*".")),
+    "RAYPATH"=>add_to_path(
+                joinpath(accelerad_folder(), "lib"),
+                add_to_path(joinpath(radiance_folder(), "lib"), ENV["RAYPATH"]*path_separator()*".")))
 
 ##########################################
 # oconv
@@ -315,11 +332,11 @@ accelerad_cmd(cmd::AbstractString) = accelerad_folder() * "accelerad_" * cmd
 radiance_oconv(radpath, matpath=missing, skypath=missing) =
   let octpath = path_replace_suffix(radpath, ".oct"),
       pipe = ismissing(matpath) ?
-             `$(radiance_cmd("oconv")) $radpath` :
+             `oconv $radpath` :
              ismissing(skypath) ?
-            `$(radiance_cmd("oconv")) $matpath $radpath` :
-            `$(radiance_cmd("oconv")) $matpath $skypath $radpath`
-    run(pipeline(pipe, stdout=octpath))
+            `oconv $matpath $radpath` :
+            `oconv $matpath $skypath $radpath`
+    run(pipeline(radiance_cmd(pipe), stdout=octpath))
     octpath
   end
 
@@ -327,10 +344,10 @@ radiance_oconv(radpath, matpath=missing, skypath=missing) =
 radiance_obj2mesh(objpath, matpath=missing) =
   let rtmpath = path_replace_suffix(objpath, ".rtm"),
       pipe = ismissing(matpath) ?
-               `$(radiance_cmd("obj2mesh"))` :
-               `$(radiance_cmd("obj2mesh")) -a $matpath $objpath`
+               `obj2mesh` :
+               `obj2mesh -a $matpath $objpath`
     println((objpath, rtmpath))
-    run(pipeline(pipe, stdin=objpath, stdout=rtmpath))
+    radiance_run(pipeline(pipe, stdin=objpath, stdout=rtmpath))
     rtmpath
   end
 
@@ -388,7 +405,7 @@ radiance_rview(octpath, camera, target, lens, light=(1,1,1)) =
   let p = camera,
       v = target-camera,
       (h_angle, v_angle) = view_angles(lens)
-    run(`$(radiance_cmd("rvu"))
+    radiance_run(`rvu
         -ab 2
         -vp $(p.x) $(p.y) $(p.z)
         -vd $(v.x) $(v.y) $(v.z)
@@ -422,7 +439,7 @@ radiance_rpict(octpath, camera, target, lens) =
         #`$(radiance_cmd("pfilt"))`,
         stdout=picpath))
     #run(`perl $(radiance_cmd("falsecolor.pl")) $picpath`, wait=false)
-    run(`$(radiance_cmd("wxFalseColor")) $picpath`, wait=false)
+    radiance_run(`wxFalseColor $picpath`, wait=false)
   end
 
 diva_render(octpath, camera, target, lens) =
@@ -441,13 +458,13 @@ diva_render(octpath, camera, target, lens) =
       arg2str = "-ps 2 -pt .05 -pj .9 -dj .7 -ds .15 -dt .05 -dc .75 -dr 3 -dp 512 -st .15 -ab 4 -aa .1 -ar 512 -ad 2048 -as 1024 -lr 8 -lw .005",
       run1str = split("$(basestr) $(arg1str)", ' '),
       run2str = split("$(basestr) $(arg2str)", ' ')
-    println(`$(radiance_cmd("rpict")) $(run1str) -af $(ambpath) $(octpath)`)
-    @time run(pipeline(`$(radiance_cmd("rpict")) $(run1str) -af $(ambpath) $(octpath)`, stdout=ovepath))
-    println(`$(radiance_cmd("rpict")) $(run2str) -af $(ambpath) $(octpath)`)
-    @time run(pipeline(`$(radiance_cmd("rpict")) $(run2str) -af $(ambpath) $(octpath)`, stdout=unfpath))
-    println(`$(radiance_cmd("pfilt")) -r .6 -x /2 -y /2 $(unfpath)`)
-    @time run(pipeline(`$(radiance_cmd("pfilt")) -r .6 -x /2 -y /2 $(unfpath)`, stdout=picpath))
-    run(`$(radiance_cmd("wxFalseColor")) $(picpath)`, wait=false)
+    println(`rpict $(run1str) -af $(ambpath) $(octpath)`)
+    @time run(pipeline(radiance_cmd(`rpict $(run1str) -af $(ambpath) $(octpath)`), stdout=ovepath))
+    println(`rpict $(run2str) -af $(ambpath) $(octpath)`)
+    @time run(pipeline(radiance_cmd(`rpict $(run2str) -af $(ambpath) $(octpath)`), stdout=unfpath))
+    println(`pfilt -r .6 -x /2 -y /2 $(unfpath)`)
+    @time run(pipeline(radiance_cmd(`pfilt -r .6 -x /2 -y /2 $(unfpath)`), stdout=picpath))
+    run(radiance_cmd(`wxFalseColor $(picpath)`), wait=false)
   end
 
 #
@@ -469,11 +486,11 @@ accelerad_render(octpath, camera, target, lens) =
       run2str = split("$(basestr) $(arg2str)", ' ')
     #println(`$(accelerad_cmd("rpict")) $(run1str) -af $(ambpath) $(octpath)`)
     #@time run(pipeline(`$(accelerad_cmd("rpict")) $(run1str) -af $(ambpath) $(octpath)`, stdout=ovepath))
-    println(`$(accelerad_cmd("rpict")) $(run2str) $(octpath)`)
-    @time run(pipeline(`$(accelerad_cmd("rpict")) $(run2str) $(octpath)`, stdout=unfpath))
-    println(`$(radiance_cmd("pfilt")) -r .6 -x /2 -y /2 $(unfpath)`)
-    @time run(pipeline(`$(radiance_cmd("pfilt")) -r .6 -x /2 -y /2 $(unfpath)`, stdout=picpath))
-    run(`$(radiance_cmd("wxFalseColor")) $(picpath)`, wait=false)
+    println(`accelerad_rpict $(run2str) $(octpath)`)
+    @time run(pipeline(accelerad_cmd(`accelerad_rpict $(run2str) $(octpath)`), stdout=unfpath))
+    println(`pfilt -r .6 -x /2 -y /2 $(unfpath)`)
+    @time run(pipeline(radiance_cmd(`pfilt -r .6 -x /2 -y /2 $(unfpath)`), stdout=picpath))
+    run(radiance_cmd(`wxFalseColor $(picpath)`), wait=false)
   end
 
 
@@ -597,60 +614,23 @@ abstract type RADKey end
 const RADId = Any
 const RADRef = GenericRef{RADKey, RADId}
 const RADNativeRef = NativeRef{RADKey, RADId}
-const RADUnionRef = UnionRef{RADKey, RADId}
-const RADSubtractionRef = SubtractionRef{RADKey, RADId}
 
-Base.@kwdef mutable struct RadianceBackend{K,T,LOD} <: LazyBackend{K,T}
-  shapes::Shapes=Shape[]
-  materials::Set{RadianceMaterial}=Set{RadianceMaterial}()
-  current_layer::Union{Nothing,AbstractLayer}=nothing
-  layers::Dict{AbstractLayer,Vector{Shape}}=Dict{AbstractLayer,Vector{Shape}}()
-  sky::String=radiance_utah_sky_string(DateTime(2020, 9, 21, 10, 0, 0), 39, 9, 0, 5, true)
-  buffer::LazyParameter{IOBuffer}=LazyParameter(IOBuffer, IOBuffer)
-  camera::Loc=xyz(10,10,10)
-  target::Loc=xyz(0,0,0)
-  lens::Real=35
-  sun_altitude::Real=90
-  sun_azimuth::Real=0
-  count::Integer=0
-end
-
-const RAD{LOD} = RadianceBackend{RADKey, RADId, LOD}
+const RAD = IOBackend{RADKey, RADId, Int}
 # Traits
-has_boolean_ops(::Type{RAD{LOD}}) where LOD = HasBooleanOps{false}()
-#eager_realize(::Type{RAD}) = EagerRealize{false}()
+has_boolean_ops(::Type{RAD}) = HasBooleanOps{false}()
 
-save_shape!(b::RAD, s::Shape) =
-  begin
-    push!(b.shapes, s)
-    if !isnothing(b.current_layer)
-      push!(get!(b.layers, b.current_layer, Shape[]), s)
-    end
-    s
-  end
+KhepriBase.void_ref(b::RAD) = -1
 
-save_material(b::RAD, mat) =
-  (push!(b.materials, mat); mat.name)
+const radiance = RAD(extra=0)
 
-used_materials(b::RAD) = b.materials
-
-#=
-The Radiance backend cannot realize shapes immediately, only when requested.
-=#
-
-KhepriBase.void_ref(b::RAD) = RADNativeRef(-1)
-
-const radiance = RAD{500}()
-
-buffer(b::RAD) = b.buffer()
 next_id(b::RAD) =
   begin
-      b.count += 1
-      b.count - 1
+      b.extra += 1
+      b.extra - 1
   end
 
 save_rad(path::String, b::RAD=radiance) =
-  let buf = b.buffer()
+  let buf = connection(b)
     take!(buf)
     for s in b.shapes
       realize(b, s)
@@ -664,35 +644,21 @@ macro save_rad()
   :(save_rad(splitext($(string(__source__.file)))[1]*".rad"))
 end
 
-#
-KhepriBase.b_realistic_sky(b::RAD, date, latitude, longitude, meridian, turbidity, withsun) =
-  b.sky = radiance_utah_sky_string(date, latitude, longitude, meridian, turbidity, withsun)
-
-KhepriBase.b_realistic_sky(b::RAD, altitude, azimuth, turbidity, withsun) =
-  b.sky = radiance_cie_sky_string(altitude, azimuth, turbidity, withsun)
-
-KhepriBase.b_set_ground(b::RAD, level, material) =
-  println("FINISH THIS b.ground = povray_ground_string(level, color)")
-
-#
-KhepriBase.b_delete_all_refs(b::RAD) =
-  (empty!(b.shapes); empty!(b.materials); b.count = 0; nothing)
-
 KhepriBase.b_trig(b::RAD, p1, p2, p3, mat) =
-  write_rad_trig(buffer(b), save_material(b, mat), next_id(b), in_world(p1), in_world(p2), in_world(p3))
+  write_rad_trig(connection(b), material_id(mat), next_id(b), in_world(p1), in_world(p2), in_world(p3))
 
 KhepriBase.b_surface_polygon(b::RAD, ps, mat) =
-  write_rad_polygon(buffer(b), save_material(b, mat), next_id(b), in_world.(ps))
+  write_rad_polygon(connection(b), material_id(mat), next_id(b), in_world.(ps))
 
 #=
 KhepriBase.b_surface_grid(b::RAD, ptss, closed_u, closed_v, smooth_u, smooth_v, interpolator, mat) =
-  let io = buffer(b),
+  let io = connection(b),
       id = next_id(b),
       (mesh_name, mesh_io) = mktemp(cleanup=false)
     write_obj(mesh_io, ptss, closed_u, closed_v, smooth_u, smooth_v, interpolator)
     close(mesh_io)
     rtmname = radiance_obj2mesh(mesh_name)
-    println(io, save_material(b, mat), " ", "mesh", " ", id)
+    println(io, material_id(mat), " ", "mesh", " ", id)
     println(io, "1 ", replace(rtmname, '\\'=>'/')) #oconv wants Unix pathnames
     println(io, 0) #0 strings
     println(io, 0) #0 ints
@@ -700,25 +666,25 @@ KhepriBase.b_surface_grid(b::RAD, ptss, closed_u, closed_v, smooth_u, smooth_v, 
   end
 =#
 KhepriBase.b_cylinder(b::RAD, cb, r, h, bmat, tmat, smat) =
-  let buf = buffer(b),
+  let buf = connection(b),
       bot = in_world(cb),
       top = in_world(cb + vz(h, cb.cs)),
       n = unitized(top-bot)
-    [write_rad_ring(buf, save_material(b, bmat), next_id(b), bot, 0, r, -n),
-     write_rad_cylinder(buf, save_material(b, smat), next_id(b), bot, r, top),
-     write_rad_ring(buf, save_material(b, tmat), next_id(b), top, 0, r, n)]
+    [write_rad_ring(buf, material_id(bmat), next_id(b), bot, 0, r, -n),
+     write_rad_cylinder(buf, material_id(smat), next_id(b), bot, r, top),
+     write_rad_ring(buf, material_id(tmat), next_id(b), top, 0, r, n)]
   end
 
 KhepriBase.b_sphere(b::RAD, c, r, mat) =
-  write_rad_sphere(buffer(b), save_material(b, mat), next_id(b), in_world(c), r)
+  write_rad_sphere(connection(b), mat.name, next_id(b), in_world(c), r)
 
 KhepriBase.b_box(b::RAD, c, dx, dy, dz, mat) =
   # HACK This is not considering the referential!!!
-  write_rad_box(buffer(b), save_material(b, mat), next_id(b), c, dx, dy, dz)
+  write_rad_box(connection(b), material_id(mat), next_id(b), c, dx, dy, dz)
 
 #
 # realize(b::RAD, s::SurfaceGrid) =
-#   let buf = buffer(b),
+#   let buf = connection(b),
 #       mod = get_material(b, s),
 #       id = next_id(b),
 #       n = 0
@@ -756,9 +722,9 @@ realize(b::ACAD, s::Cone) =
   ACADCone(connection(b), add_z(s.cb, s.h), s.r, s.cb)
 realize(b::ACAD, s::ConeFrustum) =
   ACADConeFrustum(connection(b), s.cb, s.rb, s.cb + vz(s.h, s.cb.cs), s.rt)
-realize(b::RAD, s::EmptyShape) =
+realize(b::RAD, s::empty_shape) =
     EmptyRef{RADId}()
-realize(b::RAD, s::UniversalShape) =
+realize(b::RAD, s::universal_shape) =
     UniversalRef{RADId}()
 
 realize(b::RAD, s::Move) =
@@ -766,7 +732,7 @@ realize(b::RAD, s::Move) =
                 RADMove(connection(b), r, s.v)
                 r
             end
-        mark_deleted(s.shape)
+        mark_deleted(b, s.shape)
         r
     end
 
@@ -775,7 +741,7 @@ realize(b::RAD, s::Scale) =
                 RADScale(connection(b), r, s.p, s.s)
                 r
             end
-        mark_deleted(s.shape)
+        mark_deleted(b, s.shape)
         r
     end
 
@@ -784,7 +750,7 @@ realize(b::RAD, s::Rotate) =
                 RADRotate(connection(b), r, s.p, s.v, s.angle)
                 r
             end
-        mark_deleted(s.shape)
+        mark_deleted(b, s.shape)
         r
     end
 
@@ -796,7 +762,7 @@ realize_prism(b::RAD, top, bot, side, path::PathSet, h::Real) =
   realize_prism(b, top, bot, side, convert(ClosedPath, path), h)
 
 realize_pyramid_frustum(b::RAD, top, bot, side, bot_vs::Locs, top_vs::Locs, closed=true) =
-  let buf = buffer(b),
+  let buf = connection(b),
       bot_vs = in_world.(bot_vs),
       top_vs = in_world.(top_vs)
     if closed
@@ -935,12 +901,12 @@ realize(b::RAD, w::Door) = nothing
 realize(b::RAD, s::Thicken) =
   realize(b, s.shape)
 
-realize(b::RAD, s::EmptyShape) = void_ref(b)
-realize(b::RAD, s::UniversalShape) = void_ref(b)
+realize(b::RAD, s::empty_shape) = void_ref(b)
+realize(b::RAD, s::universal_shape) = void_ref(b)
 
 #=
 
-Sensors are need on the surfaces that are intended for analysis.
+Sensors are needed on the surfaces that are intended for analysis.
 They can be placed in many different ways but that are a few standard ones,
 namely those that follow an regular distribution.
 =#
@@ -986,7 +952,7 @@ radiance_visualization(b::RAD=radiance; light=(1,1,1)) =
       @info radpath
       @info matpath
       @info skypath
-    radiance_rview(octpath, b.camera, b.target, b.lens, light)
+    radiance_rview(octpath, b_get_view(b)..., light)
   end
 
 KhepriBase.b_render_view(b::RAD, path::String) =
@@ -998,8 +964,8 @@ KhepriBase.b_render_view(b::RAD, path::String) =
       @info matpath
       @info skypath
     #@time radiance_rpict(octpath, b.camera, b.target, b.lens)
-    @time diva_render(octpath, b.camera, b.target, b.lens)
-    #@time accelerad_render(octpath, b.camera, b.target, b.lens)
+    @time diva_render(octpath, b_get_view(b)...)
+    #@time accelerad_render(octpath, b_get_view(b)...)
   end
 
 abstract type LightingAnalysis end
@@ -1045,7 +1011,7 @@ analyze(a::RadianceMapAnalysis, b::RAD) =
 
 export_geometry(b::RAD, path::AbstractString) =
   let radpath = path_replace_suffix(path, ".rad"),
-      buf = b.buffer()
+      buf = connection(b)
     take!(buf)
     for s in b.shapes
       realize(b, s)
@@ -1061,7 +1027,7 @@ export_materials(b::RAD, path::AbstractString) =
   let matpath = path_replace_suffix(path, "_materials.rad")
     open(matpath, "w") do out
       for mat in used_materials(b)
-        write_rad_material(out, mat)
+        write_rad_material(out, material_ref(b, mat))
       end
     end
     matpath
@@ -1070,10 +1036,19 @@ export_materials(b::RAD, path::AbstractString) =
 export_sky(b::RAD, path::AbstractString) =
   let skypath = path_replace_suffix(path, "_sky.rad")
     open(skypath, "w") do out
-      write(out, b.sky)
+      write(out, radiance_sky(b, b.render_env))
     end
     skypath
   end
+
+radiance_sky(b::RAD, env::RealisticSkyEnvironment) =
+  radiance_cie_sky_string(
+    b.date,
+    b.place.latitude,
+    b.place.longitude,
+    b.place.meridian,
+    b.render_env.turbidity,
+    b.render_env.sun)
 
 radiance_sensors = Parameter(Loc[])
 
